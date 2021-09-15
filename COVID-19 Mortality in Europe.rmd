@@ -1,0 +1,524 @@
+---
+title: "What contributes to the difference in COVID-19 mortality rate across European countries?"
+output:
+  html_document:
+    highlight: tango
+    mathjax: null
+    number_sections: yes
+    theme: paper
+    toc: yes
+    toc_depth: 2
+---
+<style>
+  body {font-size: 14pt; }
+</style>
+
+
+
+```{r library,include=FALSE}
+#Library
+library(plotly)
+library(ggplot2)
+library(readr)
+library(maps)
+library(dplyr)
+library(countrycode)
+```
+
+# Introduction
+
+``` {r echo=F}
+#Europe map
+case_data = read.csv("COVID-cases-since-100th-cases(with continent).csv")
+names(case_data)[names(case_data) == "Days_since_100th_cases"] <- "Days_since_100th_cases"
+names(case_data)[names(case_data) == "X.cases."] <- "Total_confirmed_cases"
+case_0426 = filter(case_data, Date == "2020-04-26")
+#create data frame of number of death
+death_data = read.csv("COVID-death(with continent).csv")
+names(death_data)[names(death_data) == "Total.confirmed.deaths.due.to.COVID.19..deaths."] <- "Total_confirmed_death"
+death_0426 = filter(death_data, Date == "2020-04-26")
+
+#calculate death rate on April 26
+covid_0426 = merge(case_0426, death_0426[,c(2,5)], by = "Entity", all.x = T)
+covid_0426$Total_confirmed_death[is.na(covid_0426$Total_confirmed_death)] <- 0
+covid_0426$Death_Rate = round(covid_0426$Total_confirmed_death/(covid_0426$Total_confirmed_cases), 3)
+
+#plot map in Europe
+worldmap = map_data("world")
+worldmap$region[worldmap$region=="UK"]<-"United Kingdom"
+worldmap_covid_death = merge(worldmap,covid_0426, by.x = "region",  
+                             by.y = "Entity", all.x = T) %>% arrange(order)
+#create data frame for geom_point
+middle = worldmap %>% group_by(region) %>% 
+  summarise(mid_long = mean(long), mid_lat = mean(lat)) 
+middle = merge(middle,covid_0426, by.x = "region",
+               by.y = "Entity", all.x = T) %>% filter(Continent == "Europe")
+
+map = ggplot(worldmap_covid_death, aes(long,lat, text=region,case = Total_confirmed_cases, 
+                                       death = Total_confirmed_death,rate = Death_Rate)) + 
+  geom_polygon(aes(group=group, fill=Death_Rate)) + 
+  geom_point(data = middle,
+             aes(mid_long,mid_lat, size = Total_confirmed_cases),
+             colour = "grey", alpha = 0.8) +  
+  xlim(c(-20, 59)) + ylim(c(35, 71)) + 
+  scale_fill_gradient(low = "#56B1F7", high = "#132B43") + theme_void() +  
+  theme(panel.grid.major = element_blank()) +
+  labs(title = "COVID-19 Death Rate in Europe as of April 26, 2020",
+       subtitle = "Point size: total confirmed cases")
+ggplotly(map, tooltip = c("text","rate","case","death")) %>%
+  layout(title = list(text = paste0('COVID-19 Death Rate in Europe as of April 26, 2020',
+                                    '<br>',
+                                    '<sup>',
+                                    'Point size: total confirmed cases',
+                                    '</sup>')))
+```
+
+```{r echo = F}
+#World death rate
+data = merge(case_data, death_data, by = c("Entity", "Code", "Date", "Continent")) %>% 
+  filter(!is.na(Days.since.the.100th.confirmed.case..days.) , !is.na(Continent))
+data$Death_Rate = round(data$Total_confirmed_death/ data$Total_confirmed_cases,3)
+data$Date = as.Date(data$Date)
+
+#plots
+g = ggplot(data, aes(x=Date , y=Death_Rate)) + 
+  ggtitle("Death Rate of Countries") +
+  geom_line(aes(colour = Continent, group = Entity)) +
+  xlab("Date")+
+  ylab("Death Rate since 100th confirmed case") +
+  scale_x_date(date_breaks = "10 day", date_labels = "%d/%m")
+ggplotly(g)
+
+```
+
+
+```{r Cumulative, echo = FALSE, message=F, warning=F}
+COVID_death_with_continent_ <- read_csv("COVID-death(with continent).csv")
+Euro_covid_death = subset(COVID_death_with_continent_, Entity %in% c("Belgium","France","United Kingdom","Italy","Sweden","Netherland","Spain","Switzerland","Portugal", "Germany","Austria"))
+cummulative <- ggplot(Euro_covid_death, aes(Date, Total.confirmed.deaths.due.to.COVID.19..deaths.))+
+  geom_line(aes(color = Entity))+
+  ggtitle("Total Deaths in Europe")+
+  ylab("Deaths")
+ggplotly(cummulative)
+```
+
+
+
+``` {r echo = FALSE, message=F, warning=F}
+#barchart
+deathByDate <- read.csv("DeathByDate.csv")
+
+deathByDate <- filter(deathByDate, Continent == "Europe")
+
+deathByDate$Date <- as.Date(deathByDate$Date, format = "%d/%m/%Y")
+
+deathByDate1 <- filter(deathByDate, Country %in% c("Belgium", "France", "United Kingdom", "Italy", "Sweden", "Netherlands", "Spain", "Switzerland", "Portugal", "Germany", "Austria"))
+
+deathByDate2 <- filter(deathByDate, !Country %in% c("Belgium", "France", "United Kingdom", "Italy", "Sweden", "Netherlands", "Spain", "Switzerland", "Portugal", "Germany", "Austria"))
+
+deathByDate2 <- group_by(deathByDate2, Date, Continent) %>% summarise(Deaths = sum(Deaths))
+deathByDate2$Country <- "Others"
+
+deathByDate2 <- deathByDate2[c("Date", "Deaths", "Country", "Continent")] 
+
+deathByDate3 <- rbind.data.frame(deathByDate1, deathByDate2)
+
+p <- ggplot(deathByDate3, aes(x = Date, y = Deaths, fill = Country)) +
+  geom_bar(position = "stack", stat = "identity") +
+  theme(axis.text.x=element_text(angle=90,hjust=1))
+
+fig <- ggplotly(p)
+fig
+```
+
+# Data Visualization
+## Socioeconormic factors
+
+```{r age, echo = FALSE, warning= F, message=F}
+WPP2019_PopulationBySingleAgeSex_1950_2019 <- read_csv("WPP2019_PopulationBySingleAgeSex_1950-2019.csv")
+WPP2019 = subset(WPP2019_PopulationBySingleAgeSex_1950_2019, Time %in% c("2019"))
+WPP2019_countries = subset(WPP2019, Location %in% c("Belgium","France","United Kingdom","Italy","Sweden","Netherlands","Spain","Switzerland","Portugal", "Germany","Austria"))
+max_pop = max(max(WPP2019_countries$PopMale),max(WPP2019_countries$PopFemale))
+countries = c("Belgium","France","United Kingdom","Italy","Sweden","Netherlands","Spain","Switzerland","Portugal", "Germany","Austria")
+par(mfrow=c(4,3))
+for (k in countries){
+  tmpx = WPP2019_countries[WPP2019_countries$Location==k,]
+  tmp1 = data.frame(tmpx$PopMale)
+  tmp1$age = c(0:100)
+  tmp1$gender = "Male"
+  tmp2 = -data.frame(tmpx$PopFemale)
+  tmp2$age = c(0:100)
+  tmp2$gender = "Female"
+  colnames(tmp1) = c("Population","age", "gender")
+  colnames(tmp2) = c("Population","age", "gender")
+  tmp3 = rbind(tmp1,tmp2)
+  age <- ggplot(tmp3, aes(age, Population, fill= gender))+
+    geom_bar(stat="identity")+
+#    scale_y_continuous(labels = abs, limits = max(tmp3$Population)*c(-1,1))+
+    coord_flip()+
+#  theme_light()+
+    scale_fill_brewer(palette = "Set1")+
+    ggtitle(paste("Population in",k))
+  plot(age)
+}
+```
+```{r urban, echo=F}
+library(plotly)
+library(ggplot2)
+HFA_26_EN <- read_csv("HFA_26_EN.csv", col_types = cols(YEAR = col_integer()))
+urban_plot <- ggplot(HFA_26_EN, aes(YEAR, VALUE, group = COUNTRY_GRP))+
+  geom_line(aes( color = COUNTRY_GRP))+
+#  geom_point(aes(color = COUNTRY_GRP))+
+  ggtitle("Percentage of Urban Population")+
+  xlab("Year")+
+  ylab("%")
+ggplotly(urban_plot)
+```
+
+```{r urban pop,echo=FALSE, warning=F, message=F}
+death_rate_per_country_per_day_ <- read_csv("death rate per country per day .csv")
+current_dr = death_rate_per_country_per_day_[death_rate_per_country_per_day_$Date== "2020-04-26",]
+current_dr = subset(current_dr, Entity %in% c("Belgium","France","Italy","Sweden","Netherlands","Spain","Switzerland","Portugal", "Germany","Austria"))
+HFA = HFA_26_EN[HFA_26_EN$YEAR==2020,]
+HFA = HFA[order(HFA$COUNTRY_GRP),]
+current_dr$urbanpop = HFA$VALUE
+urban_dr_plot <- ggplot(current_dr, aes(Death_Rate, urbanpop, size = Total_confirmed_cases))+
+  geom_point(aes(alpha =0.5, color = Entity))+
+  scale_size(range = c(1,10), name = "Total Confirmed Cases")+
+  geom_smooth(method = lm)
+ggplotly(urban_dr_plot)
+```
+
+
+
+## COVID-19 Measures and Medical Support 
+
+```{r echo=F, warning = F}
+#Number of test
+#import testing data
+test_data = read.csv("full-list-cumulative-total-tests-per-thousand.csv")
+test_data$Date = as.Date(test_data$Date, format = "%b %d, %Y")
+test_latest = test_data %>% group_by(Entity) %>% summarise(Date = max(Date))
+test_0426 = merge(test_data, test_latest, by = c("Entity", "Date"))
+
+#merge data
+test = merge(test_0426[,c(1,4)], covid_0426, by = "Entity")
+test_europe = filter(test, Continent == "Europe")
+
+#plot graph
+g = ggplot(test_europe, aes(x=Total.tests.per.thousand, y=Death_Rate)) + 
+  geom_point(aes(text = Entity)) +
+  geom_hline(yintercept=0.1, linetype="dashed", color = "red") +
+  ylab("Death Rate (26/04/2020") + xlab("Number of COVID-19 test done per thousand people") +
+  labs(title = "Extensiveness of COVID-19 test") +
+  theme_bw()
+ggplotly(g, tooltip = c("text"))
+```
+
+```{r echo=F, warning = F}
+#hospital data
+hospital_data = read.csv("Hospital_beds_ventilator.csv")
+population_2020 = read.csv("population_2020.csv")
+hospital_data = merge(hospital_data, population_2020[,c(3,10)], by.x = "Country", by.y= "Location")
+hospital_data$Ventilators_per_100.000_people = hospital_data$Ventilators / hospital_data$PopTotal *1000 
+
+#merge data
+hospital = merge(hospital_data, covid_0426, by.x = "Country", by.y = "Entity")
+hospital[,"colour"] = NA
+for (i in 1:nrow(hospital)) {
+  if (hospital[i, "Death_Rate"] >= 0.1) {
+    hospital[i, "colour"] = ">0.1"
+  }
+  else {hospital[i, "colour"] = "<0.1"}
+}
+g = ggplot(hospital, aes(x= Hospital_beds_per_1000_people, y=ICU_beds_per_100.000_people, 
+                         size = Death_Rate, colour= Death_Rate)) + 
+  geom_point(aes(text = Country)) +
+  labs(title = "Hospital beds",
+       subtitle = "Size and colour: death rate on 26/04/2020")+
+  xlab("Hospital beds per 1000 people") +
+  ylab("ICU beds per 100,000 people")+
+  stat_smooth(method="lm", formula = y~x)+ 
+  scale_colour_gradient(low = "#56B1F7", high = "#132B43") +
+  theme_bw()
+ggplotly(g, tooltip = "text")%>%
+  layout(title = list(text = paste0("Hospital beds",
+                                    '<br>',
+                                    '<sup>',
+                                    "Size and colour: death rate on 26/04/2020",
+                                    '</sup>')))
+
+```
+
+```{r echo=F, warning = F}
+#ventilator
+g2 = ggplot(hospital, aes(x= Ventilators_per_100.000_people, y=Death_Rate)) + 
+  geom_point(aes(text = Country)) +
+  labs(title = "Ventilators")+
+  xlab("Ventilators per 100,000 people") +
+  ylab("Death Rate (26/04/2020)") +theme_bw() +
+  geom_hline(yintercept=0.1, linetype="dashed", color = "red") 
+ggplotly(g2, tooltip = "text")
+```
+
+
+## Health and well-being of population
+
+```{r, include=FALSE}
+cancer <- read.table("cancer.csv", header=TRUE, sep=",")
+diabetes <- read.table("diabetes.csv", header=TRUE, sep=",")
+Respiratory <- read.table("Respiratory.csv", header=TRUE, sep=",")
+death <-read.table("death rate per country per day .csv", header=TRUE, sep=",")
+policy <-read.table("policy.csv", header=TRUE, sep=",")
+vaccination <-read.table("measles.csv", header=TRUE, sep=",")
+
+
+
+df <- data.frame(COUNTRY=c("BEL", "FRA",  "ITA", "SWE", "NLD", "PRT","DEU","GBR", "ESP", "CHE"))
+df$country <- countrycode(df$COUNTRY, origin = 'iso3c', destination = 'country.name')
+
+death <-left_join(df, death, by=c("COUNTRY"="Code"))
+death <- filter(death, Date=="2020-04-27")
+death$Death_Rate <- 100*death$Death_Rate
+
+cancer <- na.omit(left_join(death, cancer, by="COUNTRY"))
+cancer <- na.omit(left_join(summarise(group_by(cancer, country), YEAR=max(YEAR)), cancer, by=c("country", "YEAR")))
+cancer <- filter(cancer, YEAR >= 2010)
+
+diabetes <- na.omit(left_join(death, diabetes, by="COUNTRY"))
+diabetes <- na.omit(left_join(summarise(group_by(diabetes, country), YEAR=max(YEAR)), diabetes, by=c("country", "YEAR")))
+diabetes <- filter(diabetes, YEAR >= 2010)
+
+Respiratory <- na.omit(left_join(death, Respiratory, by="COUNTRY"))
+Respiratory <- na.omit(left_join(summarise(group_by(Respiratory, country), YEAR=max(YEAR)), Respiratory, by=c("country", "YEAR")))
+Respiratory <- filter(Respiratory, YEAR >= 2010)
+
+vaccination <- left_join(death, vaccination, by="COUNTRY")
+vaccination <- left_join(summarise(group_by(vaccination, COUNTRY), YEAR=max(YEAR)), vaccination, by=c("COUNTRY", "YEAR"))
+vaccination <- vaccination[,-1]
+vaccination <- arrange(vaccination,vaccination$country)
+cancer[is.na(cancer)] <- 0
+diabetes[is.na(diabetes)] <- 0
+Respiratory[is.na(Respiratory)] <- 0
+```
+
+### The relationship between death rate and chronic diseases.   
+
+```{r, include=FALSE}
+cancer <- read.table("cancer.csv", header=TRUE, sep=",")
+diabetes <- read.table("diabetes.csv", header=TRUE, sep=",")
+Respiratory <- read.table("Respiratory.csv", header=TRUE, sep=",")
+death <-read.table("death rate per country per day .csv", header=TRUE, sep=",")
+policy <-read.table("policy.csv", header=TRUE, sep=",")
+vaccination <-read.table("measles.csv", header=TRUE, sep=",")
+
+
+
+df <- data.frame(COUNTRY=c("BEL", "FRA",  "ITA", "SWE", "NLD", "PRT","DEU","GBR", "ESP", "CHE"))
+df$country <- countrycode(df$COUNTRY, origin = 'iso3c', destination = 'country.name')
+
+death <-left_join(df, death, by=c("COUNTRY"="Code"))
+death <- filter(death, Date=="2020-04-27")
+death$Death_Rate <- 100*death$Death_Rate
+
+cancer <- na.omit(left_join(death, cancer, by="COUNTRY"))
+cancer <- na.omit(left_join(summarise(group_by(cancer, country), YEAR=max(YEAR)), cancer, by=c("country", "YEAR")))
+cancer <- filter(cancer, YEAR >= 2010)
+
+diabetes <- na.omit(left_join(death, diabetes, by="COUNTRY"))
+diabetes <- na.omit(left_join(summarise(group_by(diabetes, country), YEAR=max(YEAR)), diabetes, by=c("country", "YEAR")))
+diabetes <- filter(diabetes, YEAR >= 2010)
+
+Respiratory <- na.omit(left_join(death, Respiratory, by="COUNTRY"))
+Respiratory <- na.omit(left_join(summarise(group_by(Respiratory, country), YEAR=max(YEAR)), Respiratory, by=c("country", "YEAR")))
+Respiratory <- filter(Respiratory, YEAR >= 2010)
+
+vaccination <- left_join(death, vaccination, by="COUNTRY")
+vaccination <- left_join(summarise(group_by(vaccination, COUNTRY), YEAR=max(YEAR)), vaccination, by=c("COUNTRY", "YEAR"))
+vaccination <- vaccination[,-1]
+vaccination <- arrange(vaccination,vaccination$country)
+cancer[is.na(cancer)] <- 0
+diabetes[is.na(diabetes)] <- 0
+Respiratory[is.na(Respiratory)] <- 0
+```
+
+```{r,, echo=FALSE,warning=FALSE}
+
+fig1 <- plot_ly(cancer)
+fig1 <- fig1 %>% add_trace(
+  type = 'bar', 
+  x = ~country, 
+  y = ~VALUE, 
+  color = ~country, 
+  legendgroup = ~country
+)
+fig1 <- fig1 %>% add_trace(x = ~country, y = ~Death_Rate, type = 'scatter', mode = 'lines+markers', name = 'Death rate', yaxis = 'y2',
+            line = list(color = I("gray95")),
+            hoverinfo = "text",
+            text = ~paste(Death_Rate, '%'))
+fig1 <- fig1 %>% layout(
+  title = "Cancer rate",
+  xaxis = list(
+    showgrid = F
+  ),
+  yaxis = list(
+    showgrid = F,
+    title = 'Cancer Rate %'
+  ),
+  yaxis2 = list(side = 'right', overlaying = "y", title = 'Death rate %', showgrid = FALSE, zeroline = FALSE)
+)
+
+
+
+fig2 <- plot_ly(diabetes)
+fig2 <- fig2 %>% add_trace(
+  type = 'bar', 
+  x = ~country, 
+  y = ~VALUE, 
+  color = ~country, 
+  legendgroup = ~country
+)
+
+fig2 <- fig2 %>% add_trace(x = ~country, y = ~Death_Rate, type = 'scatter', mode = 'lines+markers', name = 'Death rate', yaxis = 'y2',
+            line = list(color = I("gray95")),
+            hoverinfo = "text",
+            text = ~paste(Death_Rate, '%'))
+fig2 <- fig2 %>% layout(
+  title = "Diabetes rate",
+  xaxis = list(
+    showgrid = F
+  ),
+  yaxis = list(
+    showgrid = F,
+    title = 'Diabetes Rate %'
+  ),
+  yaxis2 = list(side = 'right', overlaying = "y", title = 'Death Rate %', showgrid = FALSE, zeroline = FALSE)
+)
+
+fig3 <- plot_ly(Respiratory)
+fig3 <- fig3 %>% add_trace(
+  type = 'bar', 
+  x = ~country, 
+  y = ~VALUE, 
+  color = ~country, 
+  legendgroup = ~country
+)
+fig3 <- fig3 %>% add_trace(x = ~country, y = ~Death_Rate, type = 'scatter', mode = 'lines+markers', name = 'Death rate', yaxis = 'y2',
+            line = list(color = I("gray95")),
+            hoverinfo = "text",
+            text = ~paste(Death_Rate, '%'))
+
+fig3 <- fig3 %>% layout(
+  title = "Respiratory Disease rate",
+  xaxis = list(
+    showgrid = F
+  ),
+  yaxis = list(
+    showgrid = F,
+    title = 'Respiratory Disease Rate %'
+  ),
+  yaxis2 = list(side = 'right', overlaying = "y", title = 'Death rate %', showgrid = FALSE, zeroline = FALSE)
+)
+
+
+fig1
+fig3
+fig2
+```
+
+### The relationship between death rate and the popularizing rate of vaccines.    
+
+```{r, echo=FALSE,warning=FALSE}
+fig4 <- plot_ly(vaccination)
+fig4 <- fig4 %>% add_trace(
+  type = 'bar', 
+  x = ~country, 
+  y = ~VALUE, 
+  color = ~country, 
+  legendgroup = ~country
+)
+
+fig4 <- fig4 %>% add_trace(x = ~country, y = ~Death_Rate, type = 'scatter', mode = 'lines+markers', name = 'Death rate', yaxis = 'y2',
+            line = list(color = I("gray95")),
+            hoverinfo = "text",
+            text = ~paste(Death_Rate, '%'))
+
+fig4 <- fig4 %>% layout(
+  title = "popularizing rate of measles vaccine",
+  xaxis = list(
+    showgrid = F
+  ),
+  yaxis = list(
+    showgrid = F,
+    type="pan"
+  ),
+  yaxis2 = list(side = 'right', overlaying = "y", title = 'Death rate', showgrid = FALSE, zeroline = FALSE)
+)
+fig4
+
+```
+
+
+
+### Time between the first confirmed cases and lockdown
+```{r, echo=FALSE,warning=FALSE, message=F}
+policy <-read.table("policy.csv", header=TRUE, sep=",")
+
+policy$First_confirmed <- as.Date(policy$First_confirmed, format = "%Y-%m-%d")
+policy$international_travel <- as.Date(policy$international_travel, format = "%Y-%m-%d")
+policy <- left_join(policy,death, by="country")
+
+client = "Time between the first confirmed cases and lockdown"
+
+policy$color <- if_else(policy$Death_Rate < 10, "#B3DE69","#FB8072")
+
+policy$duration <- policy$international_travel-policy$First_confirmed
+# Initialize empty plot
+fig <- plot_ly()
+
+
+for(i in 1:(nrow(policy) )){
+  fig <- add_trace(fig,
+                   x = c(policy$First_confirmed[i], policy$international_travel[i]),  # x0, x1
+                   y = c(i, i),  # y0, y1
+                   mode = "lines",
+                   line = list(color = policy$color[i], width = 20),
+                   
+                   showlegend = F,
+                   hoverinfo = "text",
+                   
+                   # Create custom hover text
+                   
+                   text = paste("Country: ", policy$country[i], "<br>",
+                                "Duration: ", policy$duration[i], "days<br>"),
+                   
+                   evaluate = T  # needed to avoid lazy loading
+  )
+}
+b <- list(xref = "paper",
+          yref = "paper",
+          x = 0.1,
+          y = 1,
+          xanchor = "left",
+          text = paste0(client),
+          font = list(color = '#264E86', size = 20, family = "Times New Roman"),
+          ax = 0,
+          ay = 0,
+          align = "left",
+          showarrow = FALSE)
+fig <- layout(fig,
+              
+              xaxis = list(showgrid = T, tickfont = list(color = "#000000")),
+              
+              yaxis = list(showgrid = F, tickfont = list(color = "#000000"),
+                           tickmode = "array", tickvals = 1:nrow(policy), ticktext = unique(policy$country),
+                           domain = c(0, 0.9))
+)
+
+fig <- fig %>% layout(annotations = b)
+
+
+fig
+```
+
+
